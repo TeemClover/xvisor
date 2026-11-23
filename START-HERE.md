@@ -5,12 +5,13 @@
 ## ทำตามนี้ตามลำดับ
 1. อ่านคู่มือหลักก่อน: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/SKILL.md
 2. อ่านไฟล์ใน `references/` เฉพาะที่งานต้องใช้ ตามตารางใน SKILL.md (ลิงก์เต็มอยู่ข้างล่าง)
-3. เริ่มงานตามที่ผู้ใช้บอก ถ้าข้อความเริ่มงานบอกแล้วว่าจะทำคลิป ให้ถามเรื่องของที่มีในมือเลย ไม่ต้องถามว่าอยากทำอะไร
+3. เจอกันครั้งแรก ให้ทักทายและทำความรู้จักตาม `welcome.md` (ถาม 2 ข้อ แล้วส่งการ์ดของพี่กับภารกิจแรก) ถ้าพี่วางการ์ดของพี่มาแล้ว ให้เข้างานเลย ไม่ต้องถามว่าอยากทำอะไร
 
 ใช้ลิงก์ `raw.githubusercontent.com` เสมอ หน้า `github.com/.../blob/...` มักได้แค่สรุป ไม่ได้เนื้อหาเต็ม
 
 ## ลิงก์เต็มของทุกไฟล์
 ฐาน: `https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/` ตามด้วยชื่อไฟล์
+- เจอกันครั้งแรก ทำความรู้จัก ภารกิจแรก: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/welcome.md
 - ทำคลิป เขียนบท: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/clip-playbook.md
 - ตัวอย่างงาน: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/example-scale-no-camera.md
 - มีคลิปแล้ว ตัดคลิป รีวิวจริง แคปลูกค้า: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/edit-and-review.md

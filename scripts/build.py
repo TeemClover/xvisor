@@ -21,6 +21,7 @@ REF_ORDER = [
     "clip-playbook.md",
     "example-scale-no-camera.md",
     "edit-and-review.md",
+    "setup-machine.md",
     "channel-plan.md",
     "products.md",
     "claims.md",

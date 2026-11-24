@@ -1,0 +1,7 @@
+{
+  "name": "customer-review-cuts-kit",
+  "private": true,
+  "type": "module",
+  "description": "Text layer renderer of the customer review cutter (headline, subtitles, tags, end card)",
+  "dependencies": { "playwright": "^1.49.0" }
+}

@@ -55,6 +55,17 @@ for ref in set(re.findall(r"references/([a-z0-9-]+\.md)", skill_md)):
     if not (skill_dir / "references" / ref).exists():
         fail(f"SKILL.md names a missing file: references/{ref}")
 
+# 2b. the DK-05 cutting skill ships whole: its own SKILL.md, the kit entry point, and every file it names
+dk = ROOT / "skills" / "cloverx-dk-05"
+dk_md = (dk / "SKILL.md").read_text(encoding="utf8")
+if not re.match(r"^---\nname: cloverx-dk-05\ndescription: .+\n---\n", dk_md):
+    fail("cloverx-dk-05/SKILL.md needs frontmatter with name: cloverx-dk-05 and a description")
+for ref in set(re.findall(r"`((?:references|kit)/[\w./-]+)`", dk_md)):
+    if not (dk / ref).exists():
+        fail(f"cloverx-dk-05/SKILL.md names a missing file: {ref}")
+if not (dk / "kit" / "rv").is_file():
+    fail("cloverx-dk-05/kit/rv is missing")
+
 # 3. assets listed and present
 assets_md = (skill_dir / "references" / "assets.md").read_text(encoding="utf8")
 listed = set(re.findall(r"`(assets/[^`]+)`", assets_md))
@@ -99,7 +110,8 @@ for rel in filter(None, tracked):
     p = ROOT / rel
     if not p.is_file():
         continue
-    if p.suffix.lower() in BAD_EXT:
+    # the cutting kit of the DK-05 skill ships eight short sound effects made in code (see its sfx/README.txt)
+    if p.suffix.lower() in BAD_EXT and not rel.startswith("skills/cloverx-dk-05/kit/sfx/"):
         fail(f"forbidden file type: {rel}")
     size = p.stat().st_size
     if size > 2_000_000:

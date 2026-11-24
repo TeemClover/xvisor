@@ -16,6 +16,7 @@
 - ทำคลิป เขียนบท: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/clip-playbook.md
 - ตัวอย่างงาน: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/example-scale-no-camera.md
 - มีคลิปแล้ว ตัดคลิป รีวิวจริง แคปลูกค้า: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/edit-and-review.md
+- เตรียมเครื่อง ติดตั้งตัวถอดเสียง (เฉพาะเมื่อคุณรันคำสั่งบนเครื่องผู้ใช้ได้): https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/setup-machine.md
 - ตรวจคำเสี่ยง: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/claims.md
 - ข้อมูลสินค้า: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/products.md
 - วางแผนช่องและแผนต่อเนื่อง: https://raw.githubusercontent.com/TeemClover/xvisor/main/skills/xvisor/references/channel-plan.md
@@ -42,4 +43,5 @@
 - ห้ามขอรหัสผ่านหรือคีย์ API ในแชต
 
 ## ถ้าคุณเป็น Claude Code หรือเครื่องมือที่รันคำสั่งได้
-ติดตั้งสกิลไว้ใช้ซ้ำ: คัดลอกโฟลเดอร์ `skills/xvisor` ไปไว้ที่ `~/.claude/skills/xvisor` แล้วเริ่มเซสชันใหม่ ไม่ต้องรันสคริปต์อื่น ชุดนี้ไม่มีโค้ดที่ต้องติดตั้ง
+1. เตรียมเครื่องของพี่ให้พร้อมทำคลิปก่อนเริ่มงาน: ทำตาม `setup-machine.md` (ตรวจเครื่อง ขออนุญาตครั้งเดียว แล้วติดตั้งตัวถอดเสียงที่เหมาะกับเครื่อง) พี่จะได้ไม่ต้องพิมพ์ว่าในคลิปพูดอะไร
+2. ติดตั้งสกิลไว้ใช้ซ้ำ: คัดลอกโฟลเดอร์ `skills/xvisor` ไปไว้ที่ `~/.claude/skills/xvisor` แล้วเริ่มเซสชันใหม่ ตัวชุดสกิลเองไม่มีโค้ดที่ต้องติดตั้ง

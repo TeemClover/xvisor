@@ -1,0 +1,100 @@
+#!/bin/bash
+# rv — ตัดรีวิวลูกค้าเป็นคลิปสั้น (customer review cutter)
+# รันในโฟลเดอร์โปรเจ็กต์ (ที่มี project.json กับ edl.py) หรือกำหนด RV_PROJECT=/path/to/project
+set -e
+KIT="$(cd "$(dirname "$0")" && pwd)"
+export RV_PROJECT="${RV_PROJECT:-$PWD}"
+export PYTHONPATH="$KIT/lib"
+export PYTHONDONTWRITEBYTECODE=1
+P="$RV_PROJECT"
+UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
+PY()  { "$UV" run --quiet --python 3.12 --with "opencv-python-headless<5" --with numpy --with scipy --with soundfile --with pythainlp python "$KIT/lib/$1" "${@:2}"; }
+PYW() { "$UV" run --quiet --python 3.12 --with mlx-whisper --with numpy python "$KIT/lib/$1" "${@:2}"; }
+clips() { if [ "$1" = "ALL" ] || [ -z "$1" ]; then PY clips.py; else echo "$@"; fi; }
+compose() {  # base picture + text layer + mix -> exports/<clip>.mp4
+  mkdir -p "$P/exports"
+  ffmpeg -v error -y -i "$P/build/$1/base.mov" -i "$P/build/$1/overlay.mov" -i "$P/build/$1/mix.wav" \
+    -filter_complex "[0:v][1:v]overlay=format=auto,format=yuv420p[v]" -map "[v]" -map 2:a \
+    -c:v libx264 -crf 18 -preset medium -profile:v high -r 30 -c:a aac -b:a 192k -ar 48000 -movflags +faststart -shortest "$P/exports/$1.mp4"
+  rm -f "$P/build/$1/overlay.mov"
+}
+cmd="$1"; shift || true
+case "$cmd" in
+  doctor)   # is everything this kit needs installed?
+    ok=1
+    for t in ffmpeg ffprobe node; do command -v $t >/dev/null && echo "พร้อม   $t" || { echo "ไม่พบ   $t"; ok=0; }; done
+    [ -x "$UV" ] && echo "พร้อม   uv" || { echo "ไม่พบ   uv  (ติดตั้ง: https://docs.astral.sh/uv/)"; ok=0; }
+    [ -d "$KIT/node_modules/playwright" ] && echo "พร้อม   playwright" || { echo "ยังไม่ได้ติดตั้ง playwright  (cd \"$KIT\" && npm install)"; ok=0; }
+    if [ -d "/Applications/Google Chrome.app" ] || ls "$HOME/Library/Caches/ms-playwright" 2>/dev/null | grep -q chromium; then echo "พร้อม   เบราว์เซอร์สำหรับวาดตัวหนังสือ"; else echo "ไม่พบ   Google Chrome  (ติดตั้ง Chrome หรือสั่ง cd \"$KIT\" && npx playwright install chromium)"; ok=0; fi
+    sfx=1
+    for s in cut_hit_kick cut_hit_punch pro_hover_tick_glass pro_logo_sting_sweep_hit pro_pop_in_round reverse_swell_short swish_zing whoosh_fast_whip; do
+      [ -f "$KIT/sfx/$s.flac" ] || [ -f "$KIT/sfx/$s.wav" ] || { echo "ไม่พบ   เสียงเอฟเฟกต์ sfx/$s.flac  (โหลดการ์ดสกิลใหม่)"; sfx=0; ok=0; }; done
+    [ $sfx = 1 ] && echo "พร้อม   เสียงเอฟเฟกต์ 8 ไฟล์"
+    [ "$(uname -sm)" = "Darwin arm64" ] && echo "พร้อม   เครื่อง Apple Silicon (ถอดเสียงด้วย mlx-whisper ได้)" || echo "หมายเหตุ เครื่องนี้ไม่ใช่ Mac ชิป Apple: คำสั่ง prep/words/qa ที่ถอดเสียงยังไม่ได้ทดสอบ ให้ถอดเสียงด้วยเครื่องมืออื่นแล้ววางไฟล์ที่ work/transcript/a16.json"
+    [ $ok = 1 ] && echo "ครบ" || exit 1 ;;
+  init)     # rv init <วิดีโอต้นทาง>
+    [ -f "$1" ] || { echo "ใช้: rv init <ไฟล์วิดีโอต้นทาง>"; exit 1; }
+    [ -f "$P/project.json" ] && { echo "มี project.json อยู่แล้ว"; exit 1; }
+    src="$1"; case "$src" in "$P"/*) src="${src#$P/}";; esac
+    printf '{\n  "source": "%s",\n  "speed": 1.12\n}\n' "$src" > "$P/project.json"
+    [ -f "$P/edl.py" ] || cp "$KIT/template/edl.py" "$P/edl.py"
+    mkdir -p "$P/work" "$P/exports" "$P/music" "$P/assets"
+    echo "สร้างโปรเจ็กต์แล้ว: project.json, edl.py  ขั้นต่อไป: rv prep" ;;
+  prep)     # เสียง ภาพรวม ตำแหน่งใบหน้า และถอดเสียงทั้งเทป
+    SRC="$(PY cfg.py source_path)"
+    mkdir -p "$P/work/audio" "$P/work/frames" "$P/work/transcript"
+    [ -f "$P/work/audio/a16.wav" ] || ffmpeg -v error -y -i "$SRC" -vn -ac 1 -ar 16000 "$P/work/audio/a16.wav"
+    [ -f "$P/work/audio/a48.wav" ] || ffmpeg -v error -y -i "$SRC" -vn -ac 1 -ar 48000 "$P/work/audio/a48.wav"
+    ls "$P/work/frames"/sheet_*.jpg >/dev/null 2>&1 || ffmpeg -v error -y -i "$SRC" -vf "fps=1/10,scale=180:320:force_original_aspect_ratio=increase,crop=180:320,drawtext=text='%{pts\:hms}':fontcolor=yellow:fontsize=22:box=1:boxcolor=black@0.7:x=4:y=4,tile=12x5" -q:v 4 "$P/work/frames/sheet_%02d.jpg" 2>/dev/null \
+      || ffmpeg -v error -y -i "$SRC" -vf "fps=1/10,scale=180:320:force_original_aspect_ratio=increase,crop=180:320,tile=12x5" -q:v 4 "$P/work/frames/sheet_%02d.jpg"
+    echo "ภาพรวมทุก 10 วินาที: work/frames/sheet_*.jpg"
+    [ -f "$P/work/faces.json" ] || { echo "สแกนตำแหน่งใบหน้า…"; PY faces.py | tail -1; }
+    if [ ! -f "$P/work/transcript/a16.json" ]; then
+      echo "ถอดเสียงทั้งเทป (ครั้งแรกจะโหลดโมเดลราว 3 GB)…"
+      "$UV" tool run --from mlx-whisper mlx_whisper "$P/work/audio/a16.wav" --model mlx-community/whisper-large-v3-mlx --language th --word-timestamps True \
+        --output-format json --output-dir "$P/work/transcript" --condition-on-previous-text False > "$P/work/transcript.log" 2>&1
+    fi
+    PY lines.py; echo "บทพูดพร้อมเวลา: work/transcript/lines.txt" ;;
+  runs)     PY runs.py "$@" ;;                 # rv runs 1:23-1:30 …   ช่วงพูดกับช่วงเงียบ ใช้เล็งจุดตัด
+  words)    PYW words.py "$@" ;;               # rv words [1:23-1:30 …] ถอดเสียงรายช่วงพร้อมเวลาแต่ละคำ (ไม่ใส่ช่วง = ทุกชิ้นใน edl.py)
+  subs)     PY build.py $(clips "$@") --subs-only ;;   # ดูซับและความยาวโดยยังไม่เรนเดอร์
+  build)    PY build.py "$@" ;;
+  make)     # rv make <ตอน…|ALL>  ตัดภาพ + ผสมเสียง + วางตัวหนังสือ + ประกอบไฟล์
+    for a in $(clips "$@"); do PY build.py "$a" | grep -E "segs|mix|insert|ข้าม"; node "$KIT/render.mjs" "$P/build/$a" | tail -1; compose "$a"; echo "เสร็จ $a"; done ;;
+  text)     # rv text <ตอน…|ALL>  แก้เฉพาะซับ/ตัวหนังสือ (ไม่ตัดภาพใหม่)
+    for a in $(clips "$@"); do PY build.py "$a" --skip-video | grep -E "segs|mix"; node "$KIT/render.mjs" "$P/build/$a" | tail -1; compose "$a"; echo "เสร็จ $a"; done ;;
+  audio)    # rv audio <ตอน…|ALL>  ผสมเสียงใหม่ (เปลี่ยนเพลง/ระดับเพลง) แล้วใส่กลับ ไม่เรนเดอร์ภาพ
+    for a in $(clips "$@"); do PY build.py "$a" --skip-video | grep -E "mix"
+      ffmpeg -v error -y -i "$P/exports/$a.mp4" -i "$P/build/$a/mix.wav" -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -ar 48000 -movflags +faststart -shortest "$P/exports/_$a.mp4" && mv "$P/exports/_$a.mp4" "$P/exports/$a.mp4"; echo "เสียงใหม่ $a"; done ;;
+  qa)       PYW qa.py $(clips "$@") 2>&1 | grep -v -E "Fetching|Warning|warn" ;;   # ฟังซ้ำเสียงพูดของตอน เทียบกับซับ
+  risk)     PY risk.py "$@" ;;                 # ตรวจคำเสี่ยงของทุกตอน (ซับ + หัวเรื่อง) → build/risk.json
+  inserts)  # rv inserts init | scan | page [โฟลเดอร์ภาพ] | apply <หน้าที่บันทึก>   insert รอบ 2
+    case "$1" in page|apply) PY pair.py "$@" ;; *) PY inserts.py "$@" ;; esac ;;
+  report)   PY report.py "$@" ;;               # หน้า HTML สรุปงาน มีช่องคอมเมนต์ บันทึกลงเครื่องได้
+  loud)     for f in "$P"/exports/*.mp4; do n=$(basename "$f" .mp4); r=$(ffmpeg -hide_banner -nostats -i "$f" -af ebur128=peak=true -f null - 2>&1 | tail -12 | grep -E "I:|Peak:" | tr -s ' ' | tr '\n' ' '); echo "$n $r"; done ;;
+  music)    # โหลดเพลง "Close Up" (Mixkit Stock Music Free License) มาไว้ที่ music/
+    mkdir -p "$P/music"; curl -sS -L -A "Mozilla/5.0" -o "$P/music/bed-mixkit-1167-close-up.mp3" "https://assets.mixkit.co/music/1167/1167.mp3"
+    printf 'เพลง: "Close Up" โดย Michael Ramir C. · Mixkit รหัส 1167 · Mixkit Stock Music Free License (https://mixkit.co/license/#musicFree)\nใช้ได้: โพสต์โซเชียล โฆษณาออนไลน์ YouTube · ห้าม: ออกอากาศทีวี/วิทยุ ซีดี/ดีวีดี วิดีโอเกม\nตรวจเงื่อนไขล่าสุดที่หน้าใบอนุญาตก่อนใช้ทุกครั้ง\n' > "$P/music/CREDITS.txt"
+    echo "ได้เพลงแล้ว: music/bed-mixkit-1167-close-up.mp3 (อ่าน music/CREDITS.txt)" ;;
+  *) cat <<'EOF'
+rv — ตัดรีวิวลูกค้าเป็นคลิปสั้น
+  rv doctor                 ตรวจว่าเครื่องพร้อม
+  rv init <วิดีโอ>           เริ่มโปรเจ็กต์ในโฟลเดอร์นี้
+  rv prep                   แยกเสียง ทำภาพรวม สแกนใบหน้า ถอดเสียงทั้งเทป
+  rv runs 1:23-1:30 …       ดูช่วงพูด/ช่วงเงียบ ใช้เล็งจุดตัด
+  rv words [ช่วง…]           ถอดเสียงรายช่วงพร้อมเวลาแต่ละคำ
+  rv subs <ตอน…|ALL>        ดูซับกับความยาวก่อนเรนเดอร์
+  rv make <ตอน…|ALL>        เรนเดอร์ตอน → exports/<ตอน>.mp4
+  rv text <ตอน…|ALL>        แก้เฉพาะซับ/ตัวหนังสือ
+  rv audio <ตอน…|ALL>       เปลี่ยนเพลง/ระดับเสียง
+  rv qa <ตอน…|ALL>          ฟังซ้ำเสียงพูด เทียบกับซับ
+  rv risk                   ตรวจคำเสี่ยงต่อแพลตฟอร์มและ อย.
+  rv inserts init|scan      โฟลเดอร์ insert รอบ 2 แยกตามคน
+  rv inserts page [โฟลเดอร์]  หน้า HTML ให้คนจับคู่ภาพกับคน (ไม่ต้องแบ่งโฟลเดอร์เอง)
+  rv inserts apply <ไฟล์>   จัดภาพลงโฟลเดอร์ตามหน้าที่บันทึกกลับมา
+  rv report                 หน้า HTML สรุปงาน มีช่องคอมเมนต์
+  rv loud                   วัดความดังทุกไฟล์
+  rv music                  โหลดเพลงพื้นหลังจาก Mixkit
+EOF
+  ;;
+esac

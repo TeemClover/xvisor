@@ -49,6 +49,10 @@ def scan(clip, tl, R):
         best.setdefault((h["rule"], h["word"]), h)
     # within one rule, a match that sits inside a longer match says nothing new ("48 บวก" inside "วัย 48 บวก")
     out = [h for h in best.values() if not any(o is not h and o["rule"] == h["rule"] and h["word"] in o["word"] and len(o["word"]) > len(h["word"]) for o in best.values())]
+    # DK-05: a before/after picture is red whatever is said over it
+    for i in tl.get("inserts", []):
+        if i.get("bfaf"): out.append(dict(rule="bfaf", level="red", label="ภาพก่อน–หลัง", word="ภาพ BF/AF", where="ภาพแทรก", t=i["t0"], text=i["file"][:60],
+                                          platforms=["อย.", "Meta", "TikTok"], why="ภาพเปรียบเทียบก่อน–หลังเข้าข่ายโฆษณาเกินจริง", fix="ใช้ได้เมื่อเจ้าของภาพยินยอมและทีมตัดสินว่าจะเผยแพร่ที่ไหน"))
     return sorted(out, key=lambda h: (ORDER[h["level"]], h["t"] or 0))
 
 def run(names=None):

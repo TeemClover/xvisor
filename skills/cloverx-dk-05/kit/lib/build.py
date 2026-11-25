@@ -107,7 +107,7 @@ class Insert:
     TOP = 372                       # fit="below": the picture starts under the headline, so a face at the top of a photo stays visible
     def __init__(self, spec, t0, dur):
         self.t0, self.dur = t0, dur
-        self.file = spec["file"] if os.path.isabs(spec["file"]) else os.path.join(PROJ, spec["file"])
+        self.file = spec.get("_file") or (spec["file"] if os.path.isabs(spec["file"]) else os.path.join(PROJ, spec["file"]))
         if not os.path.exists(self.file): sys.exit(f"ไม่พบไฟล์ insert: {spec['file']}")
         self.video = self.file.lower().endswith(VIDEO_EXT)
         w, h = self._size()
@@ -170,11 +170,40 @@ class Insert:
         bx, by, bw, bh = self.PANEL
         bg = cv2.GaussianBlur(cv2.resize(frame, (W // 4, H // 4)), (0, 0), 9); bg = cv2.resize(bg, (W, H)); bg = (bg * 0.55).astype(np.uint8)
         x0 = bx + (bw - self.tw) // 2; y0 = by + (bh - self.th) // 2
-        cv2.rectangle(bg, (x0 - 6, y0 - 6), (x0 + self.tw + 5, y0 + self.th + 5), (135, 201, 233), 3, cv2.LINE_AA)   # thin gold frame
+        cv2.rectangle(bg, (x0 - 6, y0 - 6), (x0 + self.tw + 5, y0 + self.th + 5), (74, 174, 58), 3, cv2.LINE_AA)    # thin HabiX-green frame
         bg[y0:y0 + self.th, x0:x0 + self.tw] = im
         return cv2.addWeighted(frame, 1 - a, bg, a, 0) if a < 1 else bg
     def close(self):
         if self.proc: self.proc.stdout.close(); self.proc.wait()
+
+def bfaf(sp, clip_name, pi):
+    """DK-05: put the BF picture on the left and the AF picture on the right of one frame, and hand back an insert spec for it.
+    Both pictures 720 px tall or more fill the whole frame (half each); a smaller one sits in a frame in the middle of the screen."""
+    ims = []
+    for k in ("bf", "af"):
+        f = sp[k] if os.path.isabs(sp[k]) else os.path.join(PROJ, sp[k])
+        im = cv2.imread(f, cv2.IMREAD_COLOR)
+        if im is None: sys.exit(f"เปิดภาพ {k.upper()} ไม่ได้: {sp[k]}")
+        ims.append(im)
+    big = min(im.shape[0] for im in ims) >= 720
+    if big:                                   # two halves of the whole frame, each cropped to fill
+        hw, out = W // 2, []
+        for im in ims:
+            k = max(hw / im.shape[1], H / im.shape[0]); r = cv2.resize(im, (math.ceil(im.shape[1] * k), math.ceil(im.shape[0] * k)), interpolation=cv2.INTER_AREA)
+            y0 = (r.shape[0] - H) // 2; x0 = (r.shape[1] - hw) // 2; out.append(r[y0:y0 + H, x0:x0 + hw])
+        comp = np.hstack(out); comp[:, hw - 3:hw + 3] = (74, 174, 58)         # thin HabiX-green seam
+        fit = "cover"
+    else:                                     # same height side by side, shown in the middle frame
+        h = min(im.shape[0] for im in ims)
+        out = [cv2.resize(im, (round(im.shape[1] * h / im.shape[0]), h), interpolation=cv2.INTER_AREA) for im in ims]
+        comp = np.hstack([out[0], np.full((h, max(4, h // 60), 3), (74, 174, 58), np.uint8), out[1]])
+        fit = "panel"
+    d = os.path.join(BUILD, clip_name); os.makedirs(d, exist_ok=True)
+    f = os.path.join(d, f"bfaf_{pi + 1}.jpg"); cv2.imwrite(f, comp, [cv2.IMWRITE_JPEG_QUALITY, 94])
+    print(f"  ภาพก่อน–หลัง {os.path.basename(sp['bf'])} | {os.path.basename(sp['af'])} ({'เต็มจอ' if big else 'กรอบกลางจอ'}) · ระดับแดง ต้องมีใบยินยอมเรื่องภาพ")
+    out = {k: v for k, v in sp.items() if k not in ("bf", "af")}
+    out.update(file=sp["bf"], _file=f, fit=sp.get("fit", fit), bfaf=True)
+    return out
 
 # ---------------- build ----------------
 def person_of(p):
@@ -233,13 +262,14 @@ def build(clip, skip_video=False):
             first = not tl["tags"]; d = min(2.7, p_o1 - p_o0 - (0.35 if first else 0.2))
             tl["tags"].append(dict(name=tag[0], role=tag[1], t0=round(p_o0 + (0.3 if first else 0.12), 3), dur=round(d, 3)))
         for sp in p.get("ins", ()):
+            if "bf" in sp: sp = bfaf(sp, clip["name"], pi)   # DK-05: before (left) and after (right) in one frame
             owner = INS.person_of_path(sp["file"])        # a file from one person's folder never lands on another person's shot
             if owner and owner != INS.SHARED and owner != p["who"]:
                 sys.exit(f"หยุด: {sp['file']} อยู่ในโฟลเดอร์ของ {PEOPLE.get(owner, {}).get('name', owner)} แต่ถูกวางในช็อตของ {(per or {}).get('name', p['who'])} ({clip['name']}-{pi + 1})")
             it0 = at(sp.get("at", 0.25)); idur = min(float(sp.get("dur", 2.2)), p_o1 - it0 - 0.05)
             if idur < 0.6: print(f"  ข้าม insert {sp['file']} (ช็อตสั้นเกินไป)"); continue
             inserts.append(Insert(sp, it0, idur))
-            tl["inserts"].append(dict(slot=f"{clip['name']}-{pi + 1}", file=sp["file"], t0=round(it0, 3), dur=round(idur, 3), fit=inserts[-1].fit))
+            tl["inserts"].append(dict(slot=f"{clip['name']}-{pi + 1}", file=sp["file"], t0=round(it0, 3), dur=round(idur, 3), fit=inserts[-1].fit, **({"bfaf": True} if sp.get("bfaf") else {})))
             tl["sfx"].append(("swish_zing", max(0, it0 - 0.05), -18))
     # the name tag, a product card and an insert share one zone: later items wait for the tag to leave
     for g in tl["tags"]:

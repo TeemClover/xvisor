@@ -1,5 +1,7 @@
-"""word-level transcript of every source window used by the EDL (speech to text picks the backend for this machine, see stt.py).
-usage (through rv): words [a-b ...]   no args = every piece in edl.py (padded 1.2 s); writes work/transcript/pieces.json"""
+"""word-level transcript of every source window used by the EDL.
+DK-05: the words come from the whole-tape transcript rv prep already made (work/transcript/a16.json), so cutting needs no second
+transcription. --fresh runs speech to text again on the windows (stt.py picks the backend) for a line the first pass heard badly.
+usage (through rv): words [--fresh] [a-b ...]   no args = every piece in edl.py (padded 1.2 s); writes work/transcript/pieces.json"""
 import sys, os, json, wave, numpy as np, stt
 import common
 from common import T, F
@@ -10,9 +12,15 @@ _w = wave.open(common.A16); sr = _w.getframerate()
 x = np.frombuffer(_w.readframes(_w.getnframes()), np.int16).astype(np.float32) / 32768.0
 db = json.load(open(OUTF)) if os.path.exists(OUTF) else {}
 PAD = 1.2
+FRESH = "--fresh" in sys.argv
+ARGS = [a for a in sys.argv[1:] if a != "--fresh"]
+TAPE = None
+if not FRESH and os.path.exists(common.WORDS):
+    TAPE = [dict(w=w["word"], s=round(w["start"], 2), e=round(w["end"], 2))
+            for sg in json.load(open(common.WORDS, encoding="utf-8"))["segments"] for w in sg.get("words", [])]
 wins = []
-if len(sys.argv) > 1:
-    for r in sys.argv[1:]:
+if ARGS:
+    for r in ARGS:
         a, b = [T(v) for v in r.split("-")]; wins.append((a, b))
 else:
     for c in edl.CLIPS:
@@ -24,7 +32,10 @@ for a, b in wins:
     else: merged.append([a, b])
 for a, b in merged:
     key = f"{a:.2f}-{b:.2f}"
-    if key not in db:
+    if key not in db and TAPE is not None and not FRESH:   # a window read with --fresh keeps that reading
+        db[key] = [w for w in TAPE if w["s"] >= a and w["e"] <= b]
+        json.dump(db, open(OUTF, "w"), ensure_ascii=False)
+    elif key not in db or FRESH:
         r = stt.transcribe(x[int(a * sr):int(b * sr)], word_timestamps=True)
         db[key] = [dict(w=w["word"], s=round(a + w["start"], 2), e=round(a + w["end"], 2)) for s in r["segments"] for w in s.get("words", [])]
         json.dump(db, open(OUTF, "w"), ensure_ascii=False)

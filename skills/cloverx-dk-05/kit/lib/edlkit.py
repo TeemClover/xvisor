@@ -1,6 +1,6 @@
 """What a project's edl.py imports: piece and clip builders, brand presets, subtitle keywords.
 Times are source times "m:ss.ss".  A subtitle line may be (text, "B") = big punch word, (text, "Q") = the interviewer.
-*word* inside a line turns it gold."""
+*word* inside a line turns it HabiX green (DK-05)."""
 from common import T
 
 ZCYCLE = [1.0, 1.16, 1.06, 1.24]          # zoom levels the cuts walk through
@@ -35,7 +35,8 @@ def P(a, b, who="B", subs=None, x=None, z=None, q=False, tight=True, slam=False,
     who  = a key of PEOPLE (the reviewer on screen), or (key, x); x = where the face is, 0 left .. 1 right
     tag  = True -> name tag from PEOPLE, or (name, role), or None
     snap = move the in/out points onto the start/end of speech (within 0.35 s); False for shots under ~1.5 s
-    ins  = inserts of round 2: dict(file=..., at=seconds from the piece start or "m:ss.s", dur=2.2, fit="cover"|"panel")"""
+    ins  = inserts of round 2: dict(file=..., at=seconds from the piece start or "m:ss.s", dur=2.2, fit="cover"|"panel")
+           DK-05 before/after: dict(bf="inserts/.../BF1.jpg", af="inserts/.../AF1.jpg", at=..., dur=2.6) -> BF left, AF right in one frame (red level)"""
     key = who
     if isinstance(who, (tuple, list)): key, x = who[0], who[1]
     return dict(a=T(a), b=T(b), z=z, who=key, x=x, subs=subs, q=q, tight=tight, slam=slam, chips=chips, cards=cards, sfx=sfx, flash=flash,

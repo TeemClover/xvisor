@@ -124,7 +124,7 @@ for rel in filter(None, tracked):
 
 # 7. relative markdown links resolve
 for md in ROOT.rglob("*.md"):
-    if ".git" in md.parts:
+    if ".git" in md.parts or "node_modules" in md.parts:  # node_modules is what `npm install` puts in the kit, never committed
         continue
     for target in re.findall(r"\]\((?!https?:|#|mailto:)([^)\s]+)\)", md.read_text(encoding="utf8")):
         if not (md.parent / target.split("#")[0]).exists():

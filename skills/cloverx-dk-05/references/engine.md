@@ -12,9 +12,10 @@
 
 ## ต้องมีก่อน
 
-- Mac ชิป Apple (ถอดเสียงด้วย mlx-whisper), `ffmpeg`, Node 20+, `uv`, Google Chrome
+- `ffmpeg`, Node 20+, `uv`, bash (Windows ใช้ Git Bash) และเบราว์เซอร์สำหรับวาดตัวหนังสือ (`npx playwright install chromium` หรือ Google Chrome ที่มีในเครื่อง)
+- ตัวถอดเสียงเลือกตามเครื่องเอง: Mac ชิป Apple ใช้ mlx-whisper เครื่องอื่นใช้ faster-whisper (`lib/stt.py`) บังคับเองได้ด้วย `RV_STT=mlx` หรือ `RV_STT=fw`
 - ครั้งแรก: `cd <skill>/kit && npm install && chmod +x rv` แล้ว `<skill>/kit/rv doctor` ต้องขึ้น "ครบ" (ถ้ารัน `rv` ไม่ได้ ใช้ `bash <skill>/kit/rv …`)
-- เครื่องอื่นที่ไม่ใช่ Mac ชิป Apple: ขั้นถอดเสียง (`prep`, `words`, `qa`) ยังไม่ได้ทดสอบ บอกผู้ใช้ตรงๆ อย่าเดา
+- ทาง faster-whisper ทดสอบแล้วบน Mac (บังคับด้วย `RV_STT=fw`) ยังไม่ได้ทดสอบบนเครื่อง Windows จริง ถ้าคำสั่งล้ม บอกผู้ใช้ตรงๆ อย่าเดา
 
 ## รอบ 1: ตัด
 

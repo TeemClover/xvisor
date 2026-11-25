@@ -1,6 +1,6 @@
-"""word-level transcript of every source window used by the EDL (run with the mlx-whisper python).
+"""word-level transcript of every source window used by the EDL (speech to text picks the backend for this machine, see stt.py).
 usage (through rv): words [a-b ...]   no args = every piece in edl.py (padded 1.2 s); writes work/transcript/pieces.json"""
-import sys, os, json, wave, numpy as np, mlx_whisper
+import sys, os, json, wave, numpy as np, stt
 import common
 from common import T, F
 edl = common.load_edl()
@@ -25,8 +25,7 @@ for a, b in wins:
 for a, b in merged:
     key = f"{a:.2f}-{b:.2f}"
     if key not in db:
-        r = mlx_whisper.transcribe(x[int(a * sr):int(b * sr)], path_or_hf_repo="mlx-community/whisper-large-v3-mlx", language="th", word_timestamps=True,
-                                   condition_on_previous_text=False, verbose=None)
+        r = stt.transcribe(x[int(a * sr):int(b * sr)], word_timestamps=True)
         db[key] = [dict(w=w["word"], s=round(a + w["start"], 2), e=round(a + w["end"], 2)) for s in r["segments"] for w in s.get("words", [])]
         json.dump(db, open(OUTF, "w"), ensure_ascii=False)
     ws = db[key]; line = []; out = []; last = None

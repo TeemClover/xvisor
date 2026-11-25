@@ -2,6 +2,7 @@
 # rv — ตัดรีวิวลูกค้าเป็นคลิปสั้น (customer review cutter)
 # รันในโฟลเดอร์โปรเจ็กต์ (ที่มี project.json กับ edl.py) หรือกำหนด RV_PROJECT=/path/to/project
 set -e
+set -o pipefail   # a failed step inside a pipe (the text-layer renderer) must stop the run, not print "เสร็จ"
 KIT="$(cd "$(dirname "$0")" && pwd)"
 export RV_PROJECT="${RV_PROJECT:-$PWD}"
 export PYTHONPATH="$KIT/lib"
@@ -9,7 +10,11 @@ export PYTHONDONTWRITEBYTECODE=1
 P="$RV_PROJECT"
 UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
 PY()  { "$UV" run --quiet --python 3.12 --with "opencv-python-headless<5" --with numpy --with scipy --with soundfile --with pythainlp python "$KIT/lib/$1" "${@:2}"; }
-PYW() { "$UV" run --quiet --python 3.12 --with mlx-whisper --with numpy python "$KIT/lib/$1" "${@:2}"; }
+# speech to text: mlx-whisper on Apple-chip Macs, faster-whisper on every other machine (Windows, Intel Mac, Linux). RV_STT=mlx|fw overrides.
+if [ -z "$RV_STT" ]; then [ "$(uname -sm)" = "Darwin arm64" ] && RV_STT=mlx || RV_STT=fw; fi
+export RV_STT
+[ "$RV_STT" = mlx ] && STT_PKG="mlx-whisper" || STT_PKG="faster-whisper"
+PYW() { "$UV" run --quiet --python 3.12 --with "$STT_PKG" --with numpy python "$KIT/lib/$1" "${@:2}"; }
 clips() { if [ "$1" = "ALL" ] || [ -z "$1" ]; then PY clips.py; else echo "$@"; fi; }
 compose() {  # base picture + text layer + mix -> exports/<clip>.mp4
   mkdir -p "$P/exports"
@@ -25,12 +30,15 @@ case "$cmd" in
     for t in ffmpeg ffprobe node; do command -v $t >/dev/null && echo "พร้อม   $t" || { echo "ไม่พบ   $t"; ok=0; }; done
     [ -x "$UV" ] && echo "พร้อม   uv" || { echo "ไม่พบ   uv  (ติดตั้ง: https://docs.astral.sh/uv/)"; ok=0; }
     [ -d "$KIT/node_modules/playwright" ] && echo "พร้อม   playwright" || { echo "ยังไม่ได้ติดตั้ง playwright  (cd \"$KIT\" && npm install)"; ok=0; }
-    if [ -d "/Applications/Google Chrome.app" ] || ls "$HOME/Library/Caches/ms-playwright" 2>/dev/null | grep -q chromium; then echo "พร้อม   เบราว์เซอร์สำหรับวาดตัวหนังสือ"; else echo "ไม่พบ   Google Chrome  (ติดตั้ง Chrome หรือสั่ง cd \"$KIT\" && npx playwright install chromium)"; ok=0; fi
+    # a browser draws the text layer: Playwright's own Chromium, or the Google Chrome installed on this machine
+    if ls "$HOME/Library/Caches/ms-playwright" "$HOME/.cache/ms-playwright" "$LOCALAPPDATA/ms-playwright" 2>/dev/null | grep -q chromium \
+      || [ -d "/Applications/Google Chrome.app" ] || [ -f "/c/Program Files/Google/Chrome/Application/chrome.exe" ] || [ -f "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" ] \
+      || command -v google-chrome >/dev/null 2>&1; then echo "พร้อม   เบราว์เซอร์สำหรับวาดตัวหนังสือ"; else echo "ไม่พบ   เบราว์เซอร์  (สั่ง cd \"$KIT\" && npx playwright install chromium)"; ok=0; fi
     sfx=1
     for s in cut_hit_kick cut_hit_punch pro_hover_tick_glass pro_logo_sting_sweep_hit pro_pop_in_round reverse_swell_short swish_zing whoosh_fast_whip; do
       [ -f "$KIT/sfx/$s.flac" ] || [ -f "$KIT/sfx/$s.wav" ] || { echo "ไม่พบ   เสียงเอฟเฟกต์ sfx/$s.flac  (โหลดการ์ดสกิลใหม่)"; sfx=0; ok=0; }; done
     [ $sfx = 1 ] && echo "พร้อม   เสียงเอฟเฟกต์ 8 ไฟล์"
-    [ "$(uname -sm)" = "Darwin arm64" ] && echo "พร้อม   เครื่อง Apple Silicon (ถอดเสียงด้วย mlx-whisper ได้)" || echo "หมายเหตุ เครื่องนี้ไม่ใช่ Mac ชิป Apple: คำสั่ง prep/words/qa ที่ถอดเสียงยังไม่ได้ทดสอบ ให้ถอดเสียงด้วยเครื่องมืออื่นแล้ววางไฟล์ที่ work/transcript/a16.json"
+    [ "$RV_STT" = mlx ] && echo "พร้อม   ถอดเสียงด้วย mlx-whisper (Mac ชิป Apple)" || echo "พร้อม   ถอดเสียงด้วย faster-whisper (เครื่องที่ไม่ใช่ Mac ชิป Apple ช้ากว่า)  เครื่อง: $(uname -sm)"
     [ $ok = 1 ] && echo "ครบ" || exit 1 ;;
   init)     # rv init <วิดีโอต้นทาง>
     [ -f "$1" ] || { echo "ใช้: rv init <ไฟล์วิดีโอต้นทาง>"; exit 1; }
@@ -50,9 +58,8 @@ case "$cmd" in
     echo "ภาพรวมทุก 10 วินาที: work/frames/sheet_*.jpg"
     [ -f "$P/work/faces.json" ] || { echo "สแกนตำแหน่งใบหน้า…"; PY faces.py | tail -1; }
     if [ ! -f "$P/work/transcript/a16.json" ]; then
-      echo "ถอดเสียงทั้งเทป (ครั้งแรกจะโหลดโมเดลราว 3 GB)…"
-      "$UV" tool run --from mlx-whisper mlx_whisper "$P/work/audio/a16.wav" --model mlx-community/whisper-large-v3-mlx --language th --word-timestamps True \
-        --output-format json --output-dir "$P/work/transcript" --condition-on-previous-text False > "$P/work/transcript.log" 2>&1
+      [ "$RV_STT" = mlx ] && echo "ถอดเสียงทั้งเทป (ครั้งแรกจะโหลดตัวถอดเสียงราว 3 GB)…" || echo "ถอดเสียงทั้งเทป (ครั้งแรกจะโหลดตัวถอดเสียงราว 1.6 GB เครื่องนี้ถอดช้ากว่า Mac ชิป Apple)…"
+      PYW stt.py "$P/work/audio/a16.wav" "$P/work/transcript/a16.json" > "$P/work/transcript.log" 2>&1 || { tail -5 "$P/work/transcript.log"; exit 1; }
     fi
     PY lines.py; echo "บทพูดพร้อมเวลา: work/transcript/lines.txt" ;;
   runs)     PY runs.py "$@" ;;                 # rv runs 1:23-1:30 …   ช่วงพูดกับช่วงเงียบ ใช้เล็งจุดตัด

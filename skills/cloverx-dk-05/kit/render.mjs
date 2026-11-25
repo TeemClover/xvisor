@@ -23,6 +23,7 @@ for (const n of names) {
 let browser;
 try { browser = await chromium.launch(); } catch { browser = await chromium.launch({ channel: 'chrome' }); }
 const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
+page.setDefaultTimeout(180000);   // a busy or slow laptop can take far longer than Playwright's 30 s for one frame
 await page.addInitScript(`window.TL=${JSON.stringify(TL)};window.ASSET=${JSON.stringify(ASSET)}`);
 await page.goto(pathToFileURL(path.join(kit, 'overlay.html')).href);
 await page.evaluate(() => document.fonts.ready);

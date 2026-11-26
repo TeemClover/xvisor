@@ -11,7 +11,7 @@ from common import PROJ, BUILD, INSERTS, F
 CATS = [("1-สินค้า", "ภาพหรือคลิปสินค้า: ซอง กล่อง ฉลาก (ใช้ภาพทางการจากการ์ด PD ใน /sources ได้)"),
         ("2-การใช้", "คลิปแกะซอง ชง ดื่ม พกพา ของคนนี้หรือที่ถ่ายใหม่"),
         ("3-แอป-Xircle", "สกรีนช็อตหรืออัดหน้าจอแอป Xircle (ต้องไม่มีข้อมูลส่วนตัวของคนอื่น)"),
-        ("4-ภาพและฟุตเทจ", "ภาพหรือฟุตเทจของคนนี้: ออกกำลัง ทำงาน ชีวิตประจำวัน (ภาพก่อน–หลังเป็นระดับแดง ใช้ได้เมื่อผู้ตรวจเลือกเองในหน้าจับคู่)"),
+        ("4-ภาพและฟุตเทจ", "ภาพหรือฟุตเทจของคนนี้: ออกกำลัง ทำงาน ชีวิตประจำวัน (ห้ามภาพก่อน–หลัง)"),
         ("5-อื่นๆ", "อย่างอื่นที่อยากให้ลองใส่ เขียนบอกในชื่อไฟล์")]
 MEDIA = (".mp4", ".mov", ".m4v", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".heic")
 SHARED = "_กลาง"
@@ -63,7 +63,7 @@ def face_picture(key, per, sl):
     else: cx, cy = (x if isinstance(x, (int, float)) else 0.5) * 1080, 0.36 * 1920
     h = 620; x0 = int(min(max(cx - h / 2, 0), 1080 - h)); y0 = int(min(max(cy - h * 0.42, 0), 1920 - h))
     out = os.path.join(common.EXPORTS, "people"); os.makedirs(out, exist_ok=True)
-    p = os.path.join(out, f"{key}.jpg"); cv2.imwrite(p, cv2.resize(fr[y0:y0 + h, x0:x0 + h], (480, 480), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 88])
+    p = os.path.join(out, f"{key}.jpg"); open(p, "wb").write(cv2.imencode(".jpg", cv2.resize(fr[y0:y0 + h, x0:x0 + h], (480, 480), interpolation=cv2.INTER_AREA), [cv2.IMWRITE_JPEG_QUALITY, 88])[1].tobytes())  # Windows: cv2.imwrite fails on Thai paths
     return p
 
 def init():
@@ -96,7 +96,7 @@ def init():
     print(f"สร้างโฟลเดอร์ insert {len(P)} คน + ของกลาง ที่ inserts/  ·  รายการช่อง: inserts/คำขอ-insert.md")
 
 def probe(f):
-    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", f], capture_output=True, text=True)
+    r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", f], capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         j = json.loads(r.stdout); st = j["streams"][0]; dur = float(st.get("duration") or j["format"].get("duration") or 0)
         return st["width"], st["height"], dur

@@ -69,7 +69,7 @@ if not (dk / "kit" / "rv").is_file():
 # 3. assets listed and present
 assets_md = (skill_dir / "references" / "assets.md").read_text(encoding="utf8")
 listed = set(re.findall(r"`(assets/[^`]+)`", assets_md))
-present = {p.relative_to(ROOT).as_posix() for p in (ROOT / "assets").rglob("*") if p.is_file()}
+present = {p.relative_to(ROOT).as_posix() for p in (ROOT / "assets").rglob("*") if p.is_file() and p.name != ".DS_Store"}
 for p in listed - present:
     fail(f"assets.md lists a missing file: {p}")
 for p in present - listed:

@@ -10,7 +10,7 @@ OUTF = common.PIECES
 os.makedirs(os.path.dirname(OUTF), exist_ok=True)
 _w = wave.open(common.A16); sr = _w.getframerate()
 x = np.frombuffer(_w.readframes(_w.getnframes()), np.int16).astype(np.float32) / 32768.0
-db = json.load(open(OUTF)) if os.path.exists(OUTF) else {}
+db = json.load(open(OUTF, encoding="utf-8")) if os.path.exists(OUTF) else {}
 PAD = 1.2
 FRESH = "--fresh" in sys.argv
 ARGS = [a for a in sys.argv[1:] if a != "--fresh"]
@@ -34,11 +34,11 @@ for a, b in merged:
     key = f"{a:.2f}-{b:.2f}"
     if key not in db and TAPE is not None and not FRESH:   # a window read with --fresh keeps that reading
         db[key] = [w for w in TAPE if w["s"] >= a and w["e"] <= b]
-        json.dump(db, open(OUTF, "w"), ensure_ascii=False)
+        json.dump(db, open(OUTF, "w", encoding="utf-8"), ensure_ascii=False)
     elif key not in db or FRESH:
         r = stt.transcribe(x[int(a * sr):int(b * sr)], word_timestamps=True)
         db[key] = [dict(w=w["word"], s=round(a + w["start"], 2), e=round(a + w["end"], 2)) for s in r["segments"] for w in s.get("words", [])]
-        json.dump(db, open(OUTF, "w"), ensure_ascii=False)
+        json.dump(db, open(OUTF, "w", encoding="utf-8"), ensure_ascii=False)
     ws = db[key]; line = []; out = []; last = None
     for w in ws:
         gap = w["s"] - last if last is not None else 0

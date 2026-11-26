@@ -26,7 +26,7 @@ def _load(path, sr, mono=True):
     return x
 
 def sfx_file(sfx_dir, name):
-    """the kit ships its effects as .flac (the office repo keeps .wav out of git); a .wav of the same name also works"""
+    """the kit ships its effects as .flac (the source repo keeps .wav out of git); a .wav of the same name also works"""
     for ext in (".flac", ".wav"):
         p = os.path.join(sfx_dir, name + ext)
         if os.path.exists(p): return p
@@ -61,11 +61,11 @@ def mix(out, tl, sfx_dir):
     raw = os.path.join(out, "mix_raw.wav")
     sf.write(raw, st, sr, subtype="FLOAT")
     # two-pass loudness: measure, then one linear gain to -14 LUFS with a peak limiter
-    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", raw, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"], capture_output=True, text=True)
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-i", raw, "-af", "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json", "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     js = json.loads(re.search(r"\{[^{}]*\}", r.stderr[r.stderr.rfind("Parsed_loudnorm"):], re.S).group(0))
     gain = -14.0 - float(js["input_i"])
     r = subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", raw, "-af", f"volume={gain:.2f}dB,alimiter=limit=0.84:attack=2:release=40:level=disabled",
-                        "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", os.path.join(out, "mix.wav")], capture_output=True, text=True)
+                        "-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", os.path.join(out, "mix.wav")], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode: raise SystemExit(r.stderr[-2000:])
     os.remove(raw)
     print(f"  mix ok (voice {tl.get('_dial_db', '-')} dB, music {tl.get('_bed_gain_db', 'ไม่มีเพลง')} dB, master {gain:+.1f} dB)")

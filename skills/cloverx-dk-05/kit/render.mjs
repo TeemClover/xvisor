@@ -12,18 +12,18 @@ const proj = path.resolve(process.env.RV_PROJECT || path.join(dir, '..', '..'));
 const TL = JSON.parse(fs.readFileSync(path.join(dir, 'timeline.json'), 'utf8'));
 const FPS = 30, N = Math.round(TL.total * FPS);
 // pictures named in the timeline: the project's assets/ wins over the kit's
-const names = new Set(['habix-white.png', TL.klogo, TL.end?.logo, TL.end?.img, ...(TL.cards || []).map(c => c.img)].filter(Boolean));
+const names = new Set(['habix-white.png', 'habix-mark.png', TL.klogo, TL.end?.logo, TL.end?.img, TL.end?.bg, 'habix-dark.png', ...(TL.cards || []).map(c => c.img)].filter(Boolean));
 const ASSET = {};
 for (const n of names) {
   const hit = [path.join(proj, 'assets', n), path.join(kit, 'assets', n)].find(p => fs.existsSync(p));
   if (!hit) { console.error('ไม่พบภาพ ' + n + ' ใน assets/ ของโปรเจ็กต์หรือของ kit'); process.exit(1); }
   ASSET[n] = pathToFileURL(hit).href;
 }
+for (const a of TL.apps || []) ASSET[a.img] = pathToFileURL(path.isAbsolute(a.img) ? a.img : path.join(proj, a.img)).href;   // DK-05 phone mock-up
 // Playwright's own Chromium if it was installed (npx playwright install chromium), else the Google Chrome on this machine
 let browser;
 try { browser = await chromium.launch(); } catch { browser = await chromium.launch({ channel: 'chrome' }); }
 const page = await browser.newPage({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1 });
-page.setDefaultTimeout(180000);   // a busy or slow laptop can take far longer than Playwright's 30 s for one frame
 await page.addInitScript(`window.TL=${JSON.stringify(TL)};window.ASSET=${JSON.stringify(ASSET)}`);
 await page.goto(pathToFileURL(path.join(kit, 'overlay.html')).href);
 await page.evaluate(() => document.fonts.ready);

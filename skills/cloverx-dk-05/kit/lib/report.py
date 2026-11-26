@@ -58,7 +58,7 @@ def main():
         mp4 = os.path.join(EXPORTS, c["name"] + ".mp4"); tlf = os.path.join(BUILD, c["name"], "timeline.json")
         if not (os.path.exists(mp4) and os.path.exists(tlf)): continue
         n += 1; tl = json.load(open(tlf, encoding="utf-8"))
-        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", mp4], capture_output=True, text=True).stdout or 0)
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", mp4], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout or 0)
         poster = os.path.join(EXPORTS, "posters", c["name"] + ".jpg")
         if not os.path.exists(poster) or os.path.getmtime(poster) < os.path.getmtime(mp4):
             subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "1.2", "-i", mp4, "-frames:v", "1", "-vf", "scale=540:-2", "-q:v", "4", poster])

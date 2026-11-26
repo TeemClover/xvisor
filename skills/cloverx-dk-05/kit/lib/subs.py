@@ -72,6 +72,12 @@ def _mark(words, kw):
         j = i + len(w["w"]); w["k"] = bool(w["w"].strip()) and sum(hit[i:j]) * 2 >= len(w["w"]); i = j
     return words
 
+NEG = "ไม่มี"   # V.2: a subtitle line that says ไม่มี turns fully green
+def _neg(ws):
+    if NEG in "".join(w["w"] for w in ws):
+        for w in ws: w["k"] = bool(w["w"].strip())
+    return ws
+
 def _group(toks):
     phr, cur = [], []
     def flush():
@@ -130,8 +136,18 @@ def _aligned(a, b, lines, kw):
             p2 = 0
             for w in ws:
                 j = p2 + len(w["w"]); w["k"] = bool(w["w"].strip()) and sum(flags[p2:j]) * 2 >= len(w["w"]); p2 = j
+        ws = _neg(ws)
         res.append(dict(t0=max(a, csm[0][1] - 0.03), words=ws, big="B" in fl, q="Q" in fl))
         pos += len(cl)
+    # V.2: words written in English don't match the Thai transcript, so their times can land after the line ends
+    # (they stay grey on screen). Spread such a line's words evenly over its own time instead.
+    for i, r in enumerate(res):
+        end = res[i + 1]["t0"] if i + 1 < len(res) else b
+        ws = r["words"]
+        if any(re.search(r"[A-Za-z]", w["w"]) for w in ws) or any(w["t"] > end - 0.08 for w in ws) or any(w2["t"] < w1["t"] for w1, w2 in zip(ws, ws[1:])):
+            n = sum(len(w["w"]) for w in ws) or 1; span = max(0.1, (end - r["t0"]) * 0.8); acc = 0
+            for w in ws:
+                w["t"] = r["t0"] + span * acc / n; acc += len(w["w"]); w["t1"] = r["t0"] + span * acc / n
     return res
 
 def phrases(a, b, manual=None, kw=()):
@@ -154,11 +170,12 @@ def phrases(a, b, manual=None, kw=()):
                     else: flags.append(on)
                 for w in ws:
                     j = pos + len(w["w"]); w["k"] = bool(w["w"].strip()) and sum(flags[pos:j]) * 2 >= len(w["w"]); pos = j
+            ws = _neg(ws)
             res.append(dict(t0=t0, words=ws, big="B" in fl, q="Q" in fl))
         return res
     cs = [(c, t) for c, t in chars() if a - 0.05 <= t < b - 0.02]
     if not cs: return res
     for p in _group(_tokens(cs)):
-        ws = _mark(p, kw)
+        ws = _neg(_mark(p, kw))
         res.append(dict(t0=max(a, p[0]["t"] - 0.04), words=ws))
     return res

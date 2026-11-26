@@ -1,7 +1,7 @@
 """Cutter: source ranges -> tightened, face-following base video + dialogue + timeline.json
 usage (through rv): build <CLIP...|ALL> [--skip-video] [--subs-only]
 """
-import sys, os, json, subprocess, math
+import re, sys, os, json, subprocess, math
 import numpy as np, soundfile as sf, cv2
 
 import common
@@ -21,7 +21,7 @@ PEOPLE = getattr(edl, "PEOPLE", {})
 VIDEO_EXT = (".mp4", ".mov", ".m4v", ".webm", ".mkv")
 
 def run(cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
         print(" ".join(cmd)); print(r.stderr[-3000:]); sys.exit(1)
 
@@ -104,30 +104,36 @@ def speech_spans(a, b, min_gap=0.26, margin=0.07):
 class Insert:
     """a picture or a clip shown over the speaker for a few seconds while the voice goes on"""
     PANEL = (60, 452, 960, 760)     # x, y, w, h of the safe box between the headline and the subtitles
-    TOP = 372                       # fit="below": the picture starts under the headline, so a face at the top of a photo stays visible
+    GAP = 24                        # space between the BF and AF pictures of a pair
+    FRAME = (52, 168, 63)           # BGR frame colour, set per clip in build()
     def __init__(self, spec, t0, dur):
         self.t0, self.dur = t0, dur
-        self.file = spec.get("_file") or (spec["file"] if os.path.isabs(spec["file"]) else os.path.join(PROJ, spec["file"]))
+        self.file = spec["file"] if os.path.isabs(spec["file"]) else os.path.join(PROJ, spec["file"])
         if not os.path.exists(self.file): sys.exit(f"ไม่พบไฟล์ insert: {spec['file']}")
         self.video = self.file.lower().endswith(VIDEO_EXT)
         w, h = self._size()
-        self.fit = spec.get("fit") or ("cover" if h / max(w, 1) >= 1.45 else "panel")
+        self.fit = "pair" if spec.get("file2") else (spec.get("fit") or ("cover" if h / max(w, 1) >= (1.45 if self.video else 1.3) else "panel"))
+        self.fin, self.fout = spec.get("fin", True), spec.get("fout", True)   # DK-05: a picture run cuts hard inside, dissolves only at its ends
         self.ss = float(spec.get("ss", 0)); self.proc = None; self.img = None; self.last = None
+        if self.fit == "pair":                     # V.2: BF (before) left + AF (after) right, side by side in one frame
+            self.video = False; bx, by, bw, bh = self.PANEL; hw = (bw - self.GAP) // 2
+            self.pair = []
+            for f in (self.file, spec["file2"] if os.path.isabs(spec["file2"]) else os.path.join(PROJ, spec["file2"])):
+                if not os.path.exists(f): sys.exit(f"ไม่พบไฟล์ insert: {f}")
+                im = cv2.imdecode(np.fromfile(f, np.uint8), cv2.IMREAD_COLOR)
+                if im is None: sys.exit(f"เปิดภาพ insert ไม่ได้: {f} (ภาพคู่ BF/AF ต้องเป็นภาพนิ่ง)")
+                ih, iw = im.shape[:2]; k = min(hw / iw, bh / ih)
+                self.pair.append(cv2.resize(im, (int(iw * k), int(ih * k)), interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LANCZOS4))
+            return
         if self.fit == "cover": self.tw, self.th = W, H
-        elif self.fit == "below":
-            k = min(W / w, (H - self.TOP) / h); self.tw, self.th = int(w * k) // 2 * 2, int(h * k) // 2 * 2
         else:
             bx, by, bw, bh = self.PANEL; k = min(bw / w, bh / h); self.tw, self.th = int(w * k) // 2 * 2, int(h * k) // 2 * 2
         if not self.video:
-            im = cv2.imread(self.file, cv2.IMREAD_COLOR)
+            im = cv2.imdecode(np.fromfile(self.file, np.uint8), cv2.IMREAD_COLOR)
             if im is None: sys.exit(f"เปิดภาพ insert ไม่ได้: {spec['file']}")
             self.img = self._fit(im)
-            if self.fit == "below":                                 # its own picture, blurred and dimmed, fills the frame behind it
-                k = max(W / im.shape[1], H / im.shape[0]); g = cv2.resize(im, (math.ceil(im.shape[1] * k), math.ceil(im.shape[0] * k)))
-                y0 = (g.shape[0] - H) // 2; x0 = (g.shape[1] - W) // 2; g = g[y0:y0 + H, x0:x0 + W]
-                g = cv2.GaussianBlur(cv2.resize(g, (W // 4, H // 4)), (0, 0), 9); self.back = (cv2.resize(g, (W, H)) * 0.45).astype(np.uint8)
     def _size(self):
-        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json", self.file], capture_output=True, text=True)
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams", "-of", "json", self.file], capture_output=True, text=True, encoding="utf-8", errors="replace")
         try: st = json.loads(r.stdout)["streams"][0]; w, h = st["width"], st["height"]
         except Exception: sys.exit(f"อ่านขนาดไฟล์ insert ไม่ได้: {self.file}")
         rot = 0
@@ -153,57 +159,38 @@ class Insert:
     def draw(self, frame, t):
         q = t - self.t0
         if q < 0 or q >= self.dur: return frame
+        if self.fit == "pair": return self._draw_pair(frame, q)
         im = self._next()
         if im is None: return frame
-        a = min(1.0, q / 0.14, (self.dur - q) / 0.14)              # 4-frame dissolve in and out
+        a = min(1.0, q / 0.14 if self.fin else 1.0, (self.dur - q) / 0.14 if self.fout else 1.0)   # 4-frame dissolve in and out
         if self.fit == "cover":
             if not self.video:                                      # slow push on stills
                 z = 1.0 + 0.05 * q / self.dur
                 M = np.float32([[z, 0, -(z - 1) * W / 2], [0, z, -(z - 1) * H / 2]]); im = cv2.warpAffine(im, M, (W, H), flags=cv2.INTER_LINEAR)
             return cv2.addWeighted(frame, 1 - a, im, a, 0) if a < 1 else im
-        if self.fit == "below":
-            bg = getattr(self, "back", None)
-            if bg is None: bg = cv2.GaussianBlur(cv2.resize(frame, (W // 4, H // 4)), (0, 0), 9); bg = (cv2.resize(bg, (W, H)) * 0.45).astype(np.uint8)
-            bg = bg.copy(); x0 = (W - self.tw) // 2; y0 = H - self.th
-            bg[y0:y0 + self.th, x0:x0 + self.tw] = im
-            return cv2.addWeighted(frame, 1 - a, bg, a, 0) if a < 1 else bg
         bx, by, bw, bh = self.PANEL
         bg = cv2.GaussianBlur(cv2.resize(frame, (W // 4, H // 4)), (0, 0), 9); bg = cv2.resize(bg, (W, H)); bg = (bg * 0.55).astype(np.uint8)
         x0 = bx + (bw - self.tw) // 2; y0 = by + (bh - self.th) // 2
-        cv2.rectangle(bg, (x0 - 6, y0 - 6), (x0 + self.tw + 5, y0 + self.th + 5), (74, 174, 58), 3, cv2.LINE_AA)    # thin HabiX-green frame
+        cv2.rectangle(bg, (x0 - 6, y0 - 6), (x0 + self.tw + 5, y0 + self.th + 5), Insert.FRAME, 3, cv2.LINE_AA)   # thin HabiX-green frame (Xircle blue on Xircle clips)
         bg[y0:y0 + self.th, x0:x0 + self.tw] = im
         return cv2.addWeighted(frame, 1 - a, bg, a, 0) if a < 1 else bg
+    def _draw_pair(self, frame, q):
+        bx, by, bw, bh = self.PANEL; hw = (bw - self.GAP) // 2
+        bg = cv2.GaussianBlur(cv2.resize(frame, (W // 4, H // 4)), (0, 0), 9); bg = cv2.resize(bg, (W, H)); bg = (bg * 0.55).astype(np.uint8)
+        out = bg.copy()
+        for i, im in enumerate(self.pair):                         # BF first, AF follows 0.35 s later
+            th, tw = im.shape[:2]; x0 = bx + i * (hw + self.GAP) + (hw - tw) // 2; y0 = by + (bh - th) // 2
+            k = max(0.0, min(1.0, (q - 0.35 * i) / 0.18, (self.dur - q) / 0.14))
+            if k <= 0: continue
+            tile = bg.copy()
+            cv2.rectangle(tile, (x0 - 6, y0 - 6), (x0 + tw + 5, y0 + th + 5), Insert.FRAME, 3, cv2.LINE_AA)
+            tile[y0:y0 + th, x0:x0 + tw] = im
+            ys, xs = slice(max(0, y0 - 8), y0 + th + 8), slice(max(0, x0 - 8), x0 + tw + 8)
+            out[ys, xs] = cv2.addWeighted(out[ys, xs], 1 - k, tile[ys, xs], k, 0)
+        a = min(1.0, q / 0.14, (self.dur - q) / 0.14)
+        return cv2.addWeighted(frame, 1 - a, out, a, 0) if a < 1 else out
     def close(self):
         if self.proc: self.proc.stdout.close(); self.proc.wait()
-
-def bfaf(sp, clip_name, pi):
-    """DK-05: put the BF picture on the left and the AF picture on the right of one frame, and hand back an insert spec for it.
-    Both pictures 720 px tall or more fill the whole frame (half each); a smaller one sits in a frame in the middle of the screen."""
-    ims = []
-    for k in ("bf", "af"):
-        f = sp[k] if os.path.isabs(sp[k]) else os.path.join(PROJ, sp[k])
-        im = cv2.imread(f, cv2.IMREAD_COLOR)
-        if im is None: sys.exit(f"เปิดภาพ {k.upper()} ไม่ได้: {sp[k]}")
-        ims.append(im)
-    big = min(im.shape[0] for im in ims) >= 720
-    if big:                                   # two halves of the whole frame, each cropped to fill
-        hw, out = W // 2, []
-        for im in ims:
-            k = max(hw / im.shape[1], H / im.shape[0]); r = cv2.resize(im, (math.ceil(im.shape[1] * k), math.ceil(im.shape[0] * k)), interpolation=cv2.INTER_AREA)
-            y0 = (r.shape[0] - H) // 2; x0 = (r.shape[1] - hw) // 2; out.append(r[y0:y0 + H, x0:x0 + hw])
-        comp = np.hstack(out); comp[:, hw - 3:hw + 3] = (74, 174, 58)         # thin HabiX-green seam
-        fit = "cover"
-    else:                                     # same height side by side, shown in the middle frame
-        h = min(im.shape[0] for im in ims)
-        out = [cv2.resize(im, (round(im.shape[1] * h / im.shape[0]), h), interpolation=cv2.INTER_AREA) for im in ims]
-        comp = np.hstack([out[0], np.full((h, max(4, h // 60), 3), (74, 174, 58), np.uint8), out[1]])
-        fit = "panel"
-    d = os.path.join(BUILD, clip_name); os.makedirs(d, exist_ok=True)
-    f = os.path.join(d, f"bfaf_{pi + 1}.jpg"); cv2.imwrite(f, comp, [cv2.IMWRITE_JPEG_QUALITY, 94])
-    print(f"  ภาพก่อน–หลัง {os.path.basename(sp['bf'])} | {os.path.basename(sp['af'])} ({'เต็มจอ' if big else 'กรอบกลางจอ'}) · ระดับแดง ต้องมีใบยินยอมเรื่องภาพ")
-    out = {k: v for k, v in sp.items() if k not in ("bf", "af")}
-    out.update(file=sp["bf"], _file=f, fit=sp.get("fit", fit), bfaf=True)
-    return out
 
 # ---------------- build ----------------
 def person_of(p):
@@ -215,6 +202,7 @@ def build(clip, skip_video=False):
     tl = dict(subs=[], chips=[], cards=[], tags=[], sfx=[], flashes=[], pieces=[], inserts=[], total=0, brand=clip.get("brand", "habix"), head=clip["head"],
               kicker=clip.get("kicker", "รีวิวจากผู้ใช้จริง"), note=clip.get("note", edl.NOTE), cuts=[])
     if "music_under_db" in clip: tl["music_under_db"] = clip["music_under_db"]
+    Insert.FRAME = (244, 133, 66) if tl["brand"] == "xircle" else (52, 168, 63)   # DK-05: Xircle blue #4285F4
     zi = 0
     for pi, p in enumerate(clip["pieces"]):
         per = person_of(p)
@@ -253,24 +241,39 @@ def build(clip, skip_video=False):
             ct = at(c[1]); tl["chips"].append(dict(text=c[0], t0=round(ct, 3), dur=c[2] if len(c) > 2 else 2.4)); tl["sfx"].append(("pro_pop_in_round", ct, -14))
         for c in p.get("cards", ()):
             ct = at(c[1]); img, nm, ln = edl.PRODUCTS[c[0]]
-            tl["cards"].append(dict(img=img, name=nm, line=ln, t0=round(ct, 3), dur=c[2] if len(c) > 2 else 2.8)); tl["sfx"].append(("pro_pop_in_round", ct, -15))
+            px = (per or {}).get("x", 0.5) if isinstance(per, dict) else 0.5
+            side = c[3] if len(c) > 3 else "center"   # V.2: centred above the subtitles with a green glow ("left"/"right" to move it)
+            tl["cards"].append(dict(img=img, name=nm, line=ln, side=side, t0=round(ct, 3), dur=c[2] if len(c) > 2 else 2.8)); tl["sfx"].append(("pro_pop_in_round", ct, -15))
         for n, s, g in p.get("sfx", ()): tl["sfx"].append((n, at(s), g))
         for f in p.get("flash", ()): tl["flashes"].append(round(at(f), 3))
         tag = p.get("tag")
-        if tag is True and per: tag = (per["name"], per.get("role", ""))
+        if tag is True and per: tag = (per["name"], per.get("age") or per.get("role", ""), per.get("job", ""))
         if tag and tag is not True and p_o1 - p_o0 >= 1.0:
             first = not tl["tags"]; d = min(2.7, p_o1 - p_o0 - (0.35 if first else 0.2))
-            tl["tags"].append(dict(name=tag[0], role=tag[1], t0=round(p_o0 + (0.3 if first else 0.12), 3), dur=round(d, 3)))
+            tl["tags"].append(dict(name=tag[0], role=tag[1], job=(tag[2] if len(tag) > 2 else ""), t0=round(p_o0 + (0.3 if first else 0.12), 3), dur=round(d, 3)))
         for sp in p.get("ins", ()):
-            if "bf" in sp: sp = bfaf(sp, clip["name"], pi)   # DK-05: before (left) and after (right) in one frame
-            owner = INS.person_of_path(sp["file"])        # a file from one person's folder never lands on another person's shot
-            if owner and owner != INS.SHARED and owner != p["who"]:
+            for fx in [sp["file"]] + ([sp["file2"]] if sp.get("file2") else []):
+              owner = INS.person_of_path(fx)               # a file from one person's folder never lands on another person's shot
+              if owner and owner != INS.SHARED and owner != p["who"]:
                 sys.exit(f"หยุด: {sp['file']} อยู่ในโฟลเดอร์ของ {PEOPLE.get(owner, {}).get('name', owner)} แต่ถูกวางในช็อตของ {(per or {}).get('name', p['who'])} ({clip['name']}-{pi + 1})")
-            it0 = at(sp.get("at", 0.25)); idur = min(float(sp.get("dur", 2.2)), p_o1 - it0 - 0.05)
+            it0 = at(sp.get("at", 0.25)) + float(sp.get("after", 0))
+            idur = float(sp.get("dur", 2.2)) if sp.get("span") else min(float(sp.get("dur", 2.2)), p_o1 - it0 - 0.05)   # DK-05 runs may run on into the next piece
             if idur < 0.6: print(f"  ข้าม insert {sp['file']} (ช็อตสั้นเกินไป)"); continue
             inserts.append(Insert(sp, it0, idur))
-            tl["inserts"].append(dict(slot=f"{clip['name']}-{pi + 1}", file=sp["file"], t0=round(it0, 3), dur=round(idur, 3), fit=inserts[-1].fit, **({"bfaf": True} if sp.get("bfaf") else {})))
-            tl["sfx"].append(("swish_zing", max(0, it0 - 0.05), -18))
+            tl["inserts"].append(dict(slot=f"{clip['name']}-{pi + 1}", file=sp["file"] + (" + " + sp["file2"] if sp.get("file2") else ""), t0=round(it0, 3), dur=round(idur, 3), fit=inserts[-1].fit,
+                                      bfaf=bool(re.match(r"(?i)(BF|AF)\d", os.path.basename(sp["file"])))))
+            if sp.get("fin", True): tl["sfx"].append(("swish_zing", max(0, it0 - 0.05), -18))
+        for ap in p.get("apps", ()):                         # DK-05: Xircle app screenshot in a phone mock-up + its scores as text
+            owner = INS.person_of_path(ap["img"])
+            if owner and owner != INS.SHARED and owner != p["who"]:
+                sys.exit(f"หยุด: {ap['img']} อยู่ในโฟลเดอร์ของ {PEOPLE.get(owner, {}).get('name', owner)} แต่ถูกวางในช็อตของ {(per or {}).get('name', p['who'])}")
+            if not os.path.exists(ap["img"] if os.path.isabs(ap["img"]) else os.path.join(PROJ, ap["img"])): sys.exit(f"ไม่พบภาพแอป: {ap['img']}")
+            a0 = at(ap.get("at", 0.25)) + float(ap.get("after", 0))
+            stats = [(k, ap[k.lower()]) for k in ("EAT", "MOVE", "SLEEP", "HABIT") if ap.get(k.lower()) not in (None, "")]
+            tl.setdefault("apps", []).append(dict(img=ap["img"], t0=round(a0, 3), dur=float(ap.get("dur", 3.5)), stats=stats, title=ap.get("title", "Xircle App"),
+                                                  label=ap.get("label", ""), note=ap.get("note", ""), card=ap.get("card", ""), cont=bool(ap.get("cont")), last=ap.get("last", True)))
+            tl["inserts"].append(dict(slot=f"{clip['name']}-{pi + 1}", file=ap["img"] + " (mock-up โทรศัพท์)", t0=round(a0, 3), dur=float(ap.get("dur", 3.5)), fit="app"))
+            if not ap.get("cont"): tl["sfx"].append(("pro_pop_in_round", a0, -14))
     # the name tag, a product card and an insert share one zone: later items wait for the tag to leave
     for g in tl["tags"]:
         te = g["t0"] + g["dur"]
@@ -284,7 +287,9 @@ def build(clip, skip_video=False):
         s["t1"] = round(nxt if nxt - last <= 1.3 else last + 1.0, 3)
         del s["pend"]
     body = t_out
-    e = dict(clip["end"]); e["t0"] = round(body, 3); tl["end"] = e
+    e = dict(clip["end"]); e["t0"] = round(body, 3)
+    if "bg" not in e and getattr(edl, "END_BG", ""): e["bg"] = edl.END_BG   # bg=None keeps the plain colour end (Xircle clips)   # V.2: end-card background picture
+    tl["end"] = e
     if CFG.get("fda_warning") and tl["brand"] != "xircle" and not e.get("warn"): e["warn"] = edl.FDA_WARN
     END_DUR = END_WARN if e.get("warn") else END_PLAIN      # the warning must stay readable for at least 5 seconds
     t_out = body + END_DUR; tl["total"] = round(t_out, 3); tl["body"] = round(body, 3)

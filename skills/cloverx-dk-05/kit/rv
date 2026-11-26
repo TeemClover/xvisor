@@ -3,8 +3,9 @@
 # รันในโฟลเดอร์โปรเจ็กต์ (ที่มี project.json กับ edl.py) หรือกำหนด RV_PROJECT=/path/to/project
 set -e
 set -o pipefail   # a failed step inside a pipe (the text-layer renderer) must stop the run, not print "เสร็จ"
-KIT="$(cd "$(dirname "$0")" && pwd)"
-export RV_PROJECT="${RV_PROJECT:-$PWD}"
+# Windows (Git Bash) needs C:/… paths for Python and Node; elsewhere plain pwd
+KIT="$(cd "$(dirname "$0")" && (pwd -W 2>/dev/null || pwd))"
+export RV_PROJECT="${RV_PROJECT:-$(pwd -W 2>/dev/null || pwd)}"
 export PYTHONPATH="$KIT/lib"
 export PYTHONDONTWRITEBYTECODE=1
 P="$RV_PROJECT"
@@ -78,6 +79,7 @@ case "$cmd" in
   inserts)  # rv inserts init | scan | page [โฟลเดอร์ภาพ] | apply <หน้าที่บันทึก>   insert รอบ 2
     case "$1" in page|apply) PY pair.py "$@" ;; *) PY inserts.py "$@" ;; esac ;;
   report)   PY report.py "$@" ;;               # หน้า HTML สรุปงาน มีช่องคอมเมนต์ บันทึกลงเครื่องได้
+  transcript) PY transcript_doc.py "$@" ;;   # ถอดเสียง.txt + .srt มีเวลา อ่านก่อนเลือกประโยคตัด
   loud)     for f in "$P"/exports/*.mp4; do n=$(basename "$f" .mp4); r=$(ffmpeg -hide_banner -nostats -i "$f" -af ebur128=peak=true -f null - 2>&1 | tail -12 | grep -E "I:|Peak:" | tr -s ' ' | tr '\n' ' '); echo "$n $r"; done ;;
   music)    # โหลดเพลง "Close Up" (Mixkit Stock Music Free License) มาไว้ที่ music/
     mkdir -p "$P/music"; curl -sS -L -A "Mozilla/5.0" -o "$P/music/bed-mixkit-1167-close-up.mp3" "https://assets.mixkit.co/music/1167/1167.mp3"
@@ -97,8 +99,9 @@ rv — ตัดรีวิวลูกค้าเป็นคลิปสั�
   rv qa <ตอน…|ALL>          ฟังเสียงพูดของตอนที่ตัดเสร็จหนึ่งรอบ เทียบกับซับ
   rv risk                   ตรวจคำเสี่ยงต่อแพลตฟอร์มและ อย.
   rv inserts init|scan      โฟลเดอร์ insert รอบ 2 แยกตามคน
-  rv inserts page [โฟลเดอร์]  หน้า HTML ให้คนจับคู่ภาพกับคน (ไม่ต้องแบ่งโฟลเดอร์เอง)
+  rv inserts page [โฟลเดอร์]  หน้า HTML ให้คนจับคู่ภาพกับคน
   rv inserts apply <ไฟล์>   จัดภาพลงโฟลเดอร์ตามหน้าที่บันทึกกลับมา
+  rv transcript             ถอดเสียง.txt + .srt มีเวลา ให้ทีมอ่านก่อนเลือกประโยค
   rv report                 หน้า HTML สรุปงาน มีช่องคอมเมนต์
   rv loud                   วัดความดังทุกไฟล์
   rv music                  โหลดเพลงพื้นหลังจาก Mixkit

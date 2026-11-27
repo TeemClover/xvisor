@@ -21,6 +21,7 @@ REF_ORDER = [
     "clip-playbook.md",
     "example-scale-no-camera.md",
     "edit-and-review.md",
+    "caption.md",
     "setup-machine.md",
     "channel-plan.md",
     "products.md",
@@ -33,7 +34,7 @@ REF_ORDER = [
     "version.md",
 ]
 # The small fallback file for phones: enough for a first clip or review, about a third of X-VISOR-START.md.
-QUICK_ORDER = ["welcome.md", "journey.md", "clip-playbook.md", "edit-and-review.md", "claims.md", "faq.md", "version.md"]
+QUICK_ORDER = ["welcome.md", "journey.md", "clip-playbook.md", "edit-and-review.md", "caption.md", "claims.md", "faq.md", "version.md"]
 
 
 def version_md() -> str:
